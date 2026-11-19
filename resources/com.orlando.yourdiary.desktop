@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=你的日记
+Exec=YourDiary
+Icon=com.orlando.yourdiary
+StartupWMClass=YourDiary
+Categories=Office;

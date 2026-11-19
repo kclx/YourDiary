@@ -1,0 +1,101 @@
+.treehole-categories {
+  border-bottom: 1px solid alpha(currentColor, 0.08);
+}
+
+.treehole-unread-dot {
+  min-width: 7px;
+  min-height: 7px;
+  border-radius: 50%;
+  background-color: @accent_bg_color;
+}
+
+.treehole-notification-quote {
+  border-left: 2px solid alpha(currentColor, 0.28);
+  padding-left: 8px;
+}
+
+button.treehole-tab {
+  padding: 5px 14px;
+}
+
+button.treehole-tab:checked {
+  background-color: alpha(@accent_bg_color, 0.15);
+  color: @accent_color;
+  font-weight: 700;
+}
+
+.treehole-card {
+  padding: 16px 18px 12px;
+  border-radius: 15px;
+}
+
+button.treehole-open.flat {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.treehole-card:hover {
+  background-image: linear-gradient(alpha(@accent_bg_color, 0.06), transparent);
+}
+
+.treehole-card .treehole-footer {
+  border-top: 1px solid alpha(currentColor, 0.08);
+  padding-top: 10px;
+}
+
+.treehole-counts {
+  color: mix(@window_fg_color, @window_bg_color, 0.24);
+  font-size: 0.9em;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+button.treehole-heart .treehole-counts {
+  color: inherit;
+}
+
+button.treehole-heart {
+  color: mix(@window_fg_color, @window_bg_color, 0.24);
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 14px;
+}
+
+button.treehole-heart:hover {
+  color: @accent_color;
+  background-color: alpha(@accent_bg_color, 0.16);
+}
+
+button.treehole-heart:active {
+  background-color: alpha(@accent_bg_color, 0.24);
+}
+
+button.treehole-heart.liked {
+  color: @accent_color;
+  background: transparent;
+}
+
+.treehole-thread {
+  background-color: transparent;
+}
+
+.treehole-thread > row {
+  padding: 0;
+}
+
+.treehole-comment {
+  padding: 12px 0;
+  border-top: 1px solid alpha(currentColor, 0.09);
+}
+
+.treehole-comment.treehole-reply {
+  padding: 8px 0;
+  border-top: none;
+}
+
+.treehole-thread-guide {
+  min-width: 12px;
+  margin-left: 3px;
+  border-left: 1px solid alpha(currentColor, 0.18);
+}

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+app_dir="${XDG_DATA_HOME:-$HOME/.local/share}/com.orlando.yourdiary"
+mkdir -p -m 700 "$app_dir"
+cd "$app_dir"
+exec /usr/lib/yourdiary/YourDiary "$@"
