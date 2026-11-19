@@ -6,14 +6,10 @@
 
 ## 安装
 
-从 [v1.0.0 发布页](https://github.com/kclx/YourDiary/releases/tag/v1.0.0) 下载 Ubuntu 26.04（amd64）安装包，在下载目录运行：
-
-```sh
-sudo apt install ./yourdiary_1.0.0_amd64.deb
-```
+在[最新发布页](https://github.com/kclx/YourDiary/releases/latest)查看适用的 Ubuntu 系统，下载并安装 `.deb` 包。
 
 ## 许可
 
 本项目使用《你的日记》App 的 API，仅用于学习、展示和个人使用。使用或分发代码时，请自行遵守 API 提供方的服务条款。
 
-Orlando Vale 开发，Codex 协助。[GPL-3.0-only](LICENSE)
+Orlando Vale 开发，Codex 协助。[开源许可证](LICENSE)
