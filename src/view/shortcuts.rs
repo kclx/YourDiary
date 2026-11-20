@@ -4,12 +4,12 @@ use gtk::{
     prelude::{CastNone, GtkWindowExt, IsA, WidgetExt},
 };
 
-pub(super) const NAVIGATION: [(&str, &str, i32); 5] = [
-    ("<Control>f", "search", 0),
-    ("<Control>n", "compose", 0),
-    ("<Control>1", "diaries", 0),
-    ("<Control>2", "treehole", 1),
-    ("<Control>3", "profile", 2),
+pub(super) const NAVIGATION: [(&str, &str, i32, &str); 5] = [
+    ("<Control>1", "diaries", 0, "切换到日记"),
+    ("<Control>2", "treehole", 1, "切换到树洞"),
+    ("<Control>3", "profile", 2, "切换到我的"),
+    ("<Control>f", "search", 0, "聚焦日记搜索框"),
+    ("<Control>n", "compose", 0, "写今天的日记"),
 ];
 
 pub(super) fn install_quit(application: &adw::Application) {

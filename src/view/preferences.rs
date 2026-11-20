@@ -27,6 +27,9 @@ pub(super) fn page() -> NavigationPage {
     export.add_prefix(&gtk::Image::from_icon_name("document-save-as-symbolic"));
     data.add(&export);
     page.add(&data);
+    let keyboard = PreferencesGroup::builder().title("键盘").build();
+    keyboard.add(&shortcuts_row());
+    page.add(&keyboard);
     let account = PreferencesGroup::builder().title("账号").build();
     let logout = adw::ActionRow::builder()
         .title("退出登录")
@@ -44,6 +47,30 @@ pub(super) fn page() -> NavigationPage {
     toolbar.add_top_bar(&adw::HeaderBar::new());
     toolbar.set_content(Some(&page));
     NavigationPage::new(&toolbar, "偏好设置")
+}
+
+fn shortcuts_row() -> adw::ExpanderRow {
+    let row = adw::ExpanderRow::builder().title("快捷键说明").build();
+    row.add_prefix(&gtk::Image::from_icon_name("input-keyboard-symbolic"));
+    let navigation = super::shortcuts::NAVIGATION
+        .iter()
+        .map(|&(key, _, _, title)| (key, title));
+    for (keys, title) in navigation.chain([
+        ("<Control>t", "在日记正文编辑框插入当前时间"),
+        ("<Control>minus", "阅读上一篇日记"),
+        ("<Control>plus <Control>equal", "阅读下一篇日记"),
+        ("Tab", "聚焦树洞列表的下一项"),
+        ("<Shift>Tab", "聚焦树洞列表的上一项"),
+        ("<Control>r", "刷新当前内容页"),
+        ("Escape", "返回上一级或关闭关于窗口"),
+        ("<Control>m", "最小化窗口"),
+        ("<Control>q", "退出应用"),
+    ]) {
+        let item = adw::ActionRow::builder().title(title).build();
+        item.add_suffix(&gtk::ShortcutLabel::new(keys));
+        row.add_row(&item);
+    }
+    row
 }
 
 fn font_row() -> adw::ActionRow {

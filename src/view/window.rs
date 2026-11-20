@@ -224,7 +224,7 @@ fn install_shortcuts(
             }),
         );
     }
-    for (keys, name, index) in shortcuts::NAVIGATION {
+    for (keys, name, index, _) in shortcuts::NAVIGATION {
         let action = SimpleAction::new(name, None);
         let navigation = navigation.downgrade();
         let split_view = split_view.downgrade();
