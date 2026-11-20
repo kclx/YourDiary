@@ -187,7 +187,9 @@ pub(super) fn person_card(
         .filter(|age| !age.is_empty())
         .map_or_else(|| person.to_owned(), |age| format!("{person} · {age}"));
     text.append(&label(&meta, "caption-heading"));
-    text.append(&label(name, "title-1"));
+    if !name.trim().is_empty() {
+        text.append(&label(name, "title-1"));
+    }
     if let Some(bio) = bio.map(str::trim).filter(|v| !v.is_empty()) {
         text.append(&label(bio, "body"));
     }

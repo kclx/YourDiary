@@ -8,6 +8,7 @@ pub(crate) struct LoginResponse {
     pub token: Option<String>,
     pub userid: Option<i64>,
     pub version: Option<String>,
+    #[serde(default, deserialize_with = "super::optional_object")]
     pub user_config: Option<ProfileResponse>,
 }
 

@@ -107,9 +107,22 @@ mod tests {
 
         response["user_config"]["paired"] = true.into();
         response["user_config"]["paired_user_config"] = serde_json::json!({});
-        let partial = login(response);
+        let partial = login(response.clone());
         let profile = partial.profile().unwrap();
         assert!(profile.paired);
         assert!(profile.partner.is_none());
+        response["user_config"]["paired_user_config"] =
+            serde_json::json!({"userid":"2", "name":null, "word_count":"8", "image_count":null});
+        let sparse = login(response);
+        let partner = sparse.profile().unwrap().partner.as_ref().unwrap();
+        assert_eq!(
+            (
+                partner.userid,
+                partner.word_count,
+                partner.image_count,
+                partner.paired_time
+            ),
+            (2, 8, 0, 0)
+        );
     }
 }
