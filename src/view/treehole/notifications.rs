@@ -272,11 +272,18 @@ impl Center {
         let weak = Rc::downgrade(self);
         let session = self.session.clone();
         let id = item.treehole_id.filter(|id| *id > 0);
+        let open_id = item
+            .treehole_open_id
+            .clone()
+            .or_else(|| id.map(|id| id.to_string()));
+        let client = self.client.clone();
         glib::spawn_future_local(async move {
-            let cached = gio::spawn_blocking(move || TreeholeClient::cached_post(&session, id?))
-                .await
-                .ok()
-                .flatten();
+            let lookup = open_id.clone();
+            let result = gio::spawn_blocking(move || {
+                client.notification_post(&session, &lookup.ok_or("通知未提供帖子编号")?, id)
+            })
+            .await
+            .unwrap_or(Err("加载帖子中断"));
             let Some(c) = weak.upgrade() else { return };
             c.opening.set(false);
             let Some(nav) = c.nav.upgrade() else { return };
@@ -286,18 +293,22 @@ impl Center {
             {
                 return;
             }
-            let detail = if let Some((post, tab, offset)) = cached {
+            let detail = if let (Ok(post), Some(open_id)) = (&result, open_id) {
+                let client = c.client.clone();
+                let session = c.session.clone();
                 card::post_detail(
-                    &post,
+                    post,
                     c.client.clone(),
                     c.session.clone(),
-                    tab,
-                    offset,
+                    move || client.notification_post(&session, &open_id, id),
                     c.likes.clone(),
                     || {},
                 )
             } else if let Some(id) = id {
                 let article = notification_article(&item);
+                if let Err(message) = result {
+                    article.append(&Label::new(Some(message)));
+                }
                 article.append(
                     &Label::builder()
                         .label("评论")

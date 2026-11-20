@@ -166,26 +166,17 @@ pub(super) fn post_detail(
     post: &Post,
     client: crate::service::treehole::TreeholeClient,
     session: std::sync::Arc<crate::service::auth::Session>,
-    tab: String,
-    offset: u32,
+    fetch_post: impl Fn() -> Result<Post, &'static str> + Send + Sync + 'static,
     likes: Rc<super::likes::Likes>,
     published: impl Fn() + 'static,
 ) -> adw::NavigationPage {
     let id = post.id;
-    let posts = client.clone();
-    let reader = session.clone();
     let sender = client.clone();
     let writer = session.clone();
     detail(
         post,
         likes,
-        move || {
-            posts
-                .posts(&reader, &tab, offset)?
-                .into_iter()
-                .find(|post| post.id == id)
-                .ok_or("帖子已移出原列表页，当前显示上次的正文")
-        },
+        fetch_post,
         move |offset, latest| client.comments(&session, id, offset, latest),
         move |text, reply| sender.write_comment(&writer, id, text, reply),
         published,

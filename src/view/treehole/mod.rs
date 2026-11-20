@@ -255,12 +255,21 @@ impl Page {
                             feed.posts.get(index).map(|post| {
                                 let id = post.id;
                                 let owner = Rc::downgrade(&page);
+                                let posts = page.client.clone();
+                                let reader = page.session.clone();
+                                let tab = page.key.clone();
+                                let offset = feed.page_offset(index);
                                 card::post_detail(
                                     post,
                                     page.client.clone(),
                                     page.session.clone(),
-                                    page.key.clone(),
-                                    feed.page_offset(index),
+                                    move || {
+                                        posts
+                                            .posts(&reader, &tab, offset)?
+                                            .into_iter()
+                                            .find(|p| p.id == id)
+                                            .ok_or("帖子已移出原列表页，当前显示上次的正文")
+                                    },
                                     page.likes.clone(),
                                     move || {
                                         if let Some(page) = owner.upgrade()

@@ -35,14 +35,54 @@ impl TreeholeClient {
         .map(|(rows, _)| rows)
     }
 
-    pub(crate) fn cached_post(session: &Session, id: i64) -> Option<(Post, String, u32)> {
-        let (key, json) = session.snapshot("").find_treehole_post(id).ok()??;
-        let (offset, tab) = key.strip_prefix("treehole/posts/")?.split_once('/')?;
-        Some((
-            serde_json::from_str(&json).ok()?,
-            tab.to_owned(),
-            offset.parse().ok()?,
-        ))
+    pub(crate) fn notification_post(
+        &self,
+        session: &Session,
+        open_id: &str,
+        id: Option<i64>,
+    ) -> Result<Post, &'static str> {
+        let key = format!("treehole/detail/{open_id}");
+        post_for_notification(&session.snapshot(&key), id, || {
+            self.0.detail(session.token(), open_id)
+        })
+    }
+}
+
+fn post_for_notification(
+    snapshot: &Snapshot,
+    id: Option<i64>,
+    fetch: impl FnOnce() -> Result<Post, TreeholeError>,
+) -> Result<Post, &'static str> {
+    let result = cache::refresh(
+        snapshot,
+        || {
+            let post = fetch()?;
+            if id.is_some_and(|id| id != post.id) {
+                return Err(TreeholeError::Other("通知与帖子编号不一致"));
+            }
+            Ok(post)
+        },
+        |e| matches!(e, TreeholeError::Unavailable),
+    );
+    match result {
+        Ok((mut post, source)) => {
+            if id.is_some_and(|id| id != post.id) {
+                return Err("通知与帖子编号不一致");
+            }
+            if let cache::Source::Cache(since) = source
+                && let Some(Some((liked, count))) =
+                    super::cached_likes(snapshot, &[super::like_key(post.id, None)], since).next()
+            {
+                post.liked = Some(liked);
+                post.like_count = Some(count);
+            }
+            Ok(post)
+        }
+        Err(TreeholeError::Unavailable) => id
+            .and_then(|id| snapshot.find_treehole_post(id).ok().flatten())
+            .and_then(|(_, json)| serde_json::from_str(&json).ok())
+            .ok_or("离线，暂无帖子缓存"),
+        Err(TreeholeError::Other(message)) => Err(message),
     }
 }
 
@@ -122,6 +162,33 @@ mod tests {
         snapshot("bob", page)
             .write(Some(br#"[{"id":7,"title":"foreign"}]"#))
             .unwrap();
+        let details = snapshot("alice", "treehole/detail/key");
+        assert!(
+            post_for_notification(&details, Some(8), || Ok(serde_json::from_str(
+                r#"{"id":7}"#
+            )
+            .unwrap()))
+            .is_err()
+        );
+        assert!(details.read(None).unwrap().is_none());
+        let post =
+            post_for_notification(&details, Some(7), || Err(TreeholeError::Unavailable)).unwrap();
+        assert_eq!(post.title.as_deref(), Some("first"));
+        let remote = || Ok(serde_json::from_str(r#"{"id":9,"content":"完整帖子"}"#).unwrap());
+        assert_eq!(post_for_notification(&details, None, remote).unwrap().id, 9);
+        assert_eq!(
+            post_for_notification(&details, None, || Err(TreeholeError::Unavailable))
+                .unwrap()
+                .content
+                .as_deref(),
+            Some("完整帖子")
+        );
+        assert!(
+            post_for_notification(&snapshot("bob", "treehole/detail/key"), None, || Err(
+                TreeholeError::Unavailable
+            ))
+            .is_err()
+        );
         let (key, json) = inbox().find_treehole_post(7).unwrap().unwrap();
         assert_eq!(key, page);
         assert_eq!(
