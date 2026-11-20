@@ -8,6 +8,20 @@
 
 在[最新发布页](https://github.com/kclx/YourDiary/releases/latest)查看适用的 Ubuntu 系统，下载并安装 `.deb` 包。
 
+## 界面预览
+
+以下预览由实际截图脱敏重绘，隐藏了账号资料、日记和留言内容。
+
+![日记列表，支持搜索标题和正文](assets/screenshots/diaries.webp)
+
+| 树洞 | 评论与点赞通知 |
+| --- | --- |
+| ![按分类浏览树洞帖子](assets/screenshots/treehole.webp) | ![树洞评论、回复和点赞通知](assets/screenshots/notifications.webp) |
+
+| 我的 | 偏好设置 |
+| --- | --- |
+| ![自己和搭档的资料卡](assets/screenshots/profile.webp) | ![外观、日记导出和快捷键设置](assets/screenshots/preferences.webp) |
+
 ## 许可
 
 本项目使用《你的日记》App 的 API，仅用于学习、展示和个人使用。使用或分发代码时，请自行遵守 API 提供方的服务条款。
