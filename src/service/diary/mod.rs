@@ -20,6 +20,8 @@ pub(crate) use writing::{TodayDiary, WriteError, load_today, save_today, today};
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct SyncedDiaries {
     #[serde(default)]
+    pub skipped: usize,
+    #[serde(default)]
     pub moods: Vec<(i64, String)>,
     pub account_id: Option<i64>,
     pub entries: Vec<DiaryEntry>,

@@ -1,4 +1,24 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+
+#[derive(Deserialize)]
+pub(in crate::api) struct PostDetail {
+    pub error: i64,
+    pub treehole: Option<Post>,
+}
+
+fn post_id<'de, D: Deserializer<'de>>(field: D) -> Result<Option<i64>, D::Error> {
+    Ok(Option::<super::diary::ApiInteger>::deserialize(field)?.and_then(|id| id.positive_number()))
+}
+
+fn open_id<'de, D: Deserializer<'de>>(field: D) -> Result<Option<String>, D::Error> {
+    Ok(
+        match Option::<super::diary::ApiInteger>::deserialize(field)? {
+            Some(super::diary::ApiInteger::Text(id)) if !id.trim().is_empty() => Some(id),
+            Some(super::diary::ApiInteger::Number(id)) if id > 0 => Some(id.to_string()),
+            _ => None,
+        },
+    )
+}
 
 #[derive(Deserialize)]
 pub(in crate::api) struct Entries<T> {
@@ -14,10 +34,14 @@ pub(crate) struct Notification {
     pub kind: String,
     pub user: Option<String>,
     pub treehole: Option<String>,
+    #[serde(default, deserialize_with = "post_id")]
     pub treehole_id: Option<i64>,
+    #[serde(default, deserialize_with = "open_id")]
+    pub treehole_open_id: Option<String>,
     pub comment_added: Option<String>,
     pub comment_replied: Option<String>,
     pub createdtime: Option<i64>,
+    #[serde(default, deserialize_with = "super::bool_flag")]
     pub read: bool,
 }
 

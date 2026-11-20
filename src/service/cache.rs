@@ -11,7 +11,17 @@ pub(super) fn refresh<T: Serialize + DeserializeOwned, E>(
     fetch: impl FnOnce() -> Result<T, E>,
     unavailable: impl FnOnce(&E) -> bool,
 ) -> Result<(T, Source), E> {
+    refresh_if(snapshot, fetch, unavailable, |_| true)
+}
+
+pub(super) fn refresh_if<T: Serialize + DeserializeOwned, E>(
+    snapshot: &Snapshot<'_>,
+    fetch: impl FnOnce() -> Result<T, E>,
+    unavailable: impl FnOnce(&E) -> bool,
+    store: impl FnOnce(&T) -> bool,
+) -> Result<(T, Source), E> {
     match fetch() {
+        Ok(value) if !store(&value) => Ok((value, Source::Server)),
         Ok(value) => {
             match serde_json::to_vec(&value) {
                 Ok(bytes) => {
@@ -51,6 +61,12 @@ mod tests {
         let offline = || Err::<Vec<i64>, _>("offline");
         let unavailable = |e: &&str| *e == "offline";
         refresh(&saved, || Ok(vec![42_i64]), unavailable).unwrap();
+        assert_eq!(
+            refresh_if(&saved, || Ok(vec![7_i64]), unavailable, |_| false)
+                .unwrap()
+                .0,
+            [7]
+        );
         let (rows, source) = refresh(&saved, offline, unavailable).unwrap();
         assert_eq!(rows, [42]);
         assert!(matches!(source, Source::Cache(_)));

@@ -156,6 +156,7 @@ fn fill_cache(
     mut report: impl FnMut(CacheProgress) -> bool,
 ) -> Result<CacheProgress, Box<dyn Error>> {
     let initial = !cache.initialized(account)?;
+    let revisions = cache.revisions(account)?;
     let mut progress = CacheProgress {
         completed: 0,
         total: 0,
@@ -163,10 +164,6 @@ fn fill_cache(
     let mut pending = BTreeMap::<i64, Vec<&DiaryEntry>>::new();
     let mut full = Vec::new();
     for entry in entries {
-        let include = initial || entry.has_full_content || entry.read.get() == Some(false);
-        if !include {
-            continue;
-        }
         let Some(author) = entry.author_id else {
             progress.total += 1;
             continue;
@@ -177,7 +174,7 @@ fn fill_cache(
             continue;
         }
         let current = covers(
-            cache.revision(account, author, entry.id)?,
+            revisions.get(&(author, entry.id)).copied(),
             entry.revision.get(),
         );
         if current {
@@ -255,6 +252,7 @@ mod tests {
             revision: Cell::new(Some(revision)),
             read: Cell::new(Some(read)),
             title: "".into(),
+            extras: Default::default(),
             date: String::new(),
             weather_code: None,
             mood_id: None,
@@ -334,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn full_cache_resumes_then_prefetches_only_unread_and_preserves_account_boundaries() {
+    fn full_cache_resumes_then_refreshes_stale_revisions_and_preserves_account_boundaries() {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -437,34 +435,46 @@ mod tests {
             entry(3, 2, 12, true, false),
             entry(4, 2, 12, false, false),
         ];
+        current[2].read.set(None);
         let progress = fill_cache(
             &cache,
             1,
             &current,
             |author, ids| {
-                assert_eq!((author, ids), (2, &[4][..]));
-                Ok(HashMap::from([(
-                    4,
-                    FullDiary {
-                        content: "新正文".into(),
-                        revision: Some(12),
-                    },
-                )]))
+                assert_eq!((author, ids), (2, &[3, 4][..]));
+                Ok(ids
+                    .iter()
+                    .map(|&id| {
+                        (
+                            id,
+                            FullDiary {
+                                content: format!("新版关键词{id}"),
+                                revision: Some(12),
+                            },
+                        )
+                    })
+                    .collect())
             },
             |_| true,
         )
         .unwrap();
-        assert_eq!((progress.completed, progress.total), (1, 1));
-        assert_eq!(cache.load(1, 2, 3).unwrap().unwrap().revision, Some(10));
+        assert_eq!((progress.completed, progress.total), (2, 2));
+        assert_eq!(
+            cache.search(1, "新版关键词3").unwrap()[&(2, 3)].revision,
+            Some(12)
+        );
+        assert_eq!(current[1].read.get(), Some(true));
+        assert_eq!(current[2].read.get(), None);
 
         let opened = load_diary(Some(&cache), Some(1), &current[0], false, |_, _| {
             panic!("当前缓存无需请求")
         })
         .unwrap();
         assert!(opened.current);
+        current[1].revision.set(Some(13));
         let fallback = load_diary(Some(&cache), Some(1), &current[1], false, |_, _| None).unwrap();
         assert!(!fallback.current);
-        assert_eq!(fallback.full.content, "完整的对方正文");
+        assert_eq!(fallback.full.content, "新版关键词3");
         let refreshed_body = load_diary(Some(&cache), Some(1), &current[0], true, |_, _| {
             Some(FullDiary {
                 content: "手动刷新".into(),
@@ -477,7 +487,7 @@ mod tests {
             assert_eq!((author, id), (2, 3));
             Some(FullDiary {
                 content: "打开时取得的新版全文".into(),
-                revision: Some(12),
+                revision: Some(13),
             })
         })
         .unwrap();

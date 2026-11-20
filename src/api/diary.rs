@@ -1,6 +1,6 @@
 use super::{
     Endpoint,
-    request::{DiariesRequest, DiaryMessageRequest, DiaryWrite, SyncRequest},
+    request::{DiariesRequest, DiaryMessageRequest, DiaryWrite, SyncRequest, encoded_request},
     response::diary::{
         DetailResponse, DiaryMessage, MessagesResponse, StatusResponse, SyncResponse, WriteResponse,
     },
@@ -35,10 +35,11 @@ impl<'a> DiaryClient<'a> {
 
     pub(crate) fn details(&self, author_id: i64, ids: &[i64]) -> Result<DetailResponse, SyncError> {
         self.send(
-            Endpoint::DiariesByIds { author_id }
-                .request(&self.client)
-                .multipart(DiariesRequest { diary_ids: ids }.into_form())
-                .timeout(Duration::from_secs(20)),
+            encoded_request(
+                Endpoint::DiariesByIds { author_id }.request(&self.client),
+                DiariesRequest { diary_ids: ids }.encoded_form(),
+            )
+            .timeout(Duration::from_secs(20)),
         )
     }
 
@@ -59,30 +60,31 @@ impl<'a> DiaryClient<'a> {
     pub(crate) fn write(&self, diary: DiaryWrite) -> Result<i64, SyncError> {
         let expected_id = diary.id;
         let response: WriteResponse = self.send(
-            Endpoint::WriteDiaryV3
-                .request(&self.client)
-                .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
-                .header(reqwest::header::ACCEPT, "application/json")
-                .multipart(diary.into_form())
-                .timeout(Duration::from_secs(20)),
+            encoded_request(
+                Endpoint::WriteDiaryV3.request(&self.client),
+                diary.encoded_form(),
+            )
+            .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .timeout(Duration::from_secs(20)),
         )?;
-        if response.error != 0 {
+        if response.error.is_some_and(|code| code != 0) {
             return Err(SyncError::Rejected);
         }
         response
-            .created_id()
-            .filter(|id| expected_id.is_none_or(|expected| *id == expected))
+            .saved_id(expected_id)
             .ok_or(SyncError::InvalidResponse)
     }
 
     pub(crate) fn send_message(&self, diary_id: i64, content: String) -> Result<(), SyncError> {
         let response: StatusResponse = self.send(
-            Endpoint::SendDiaryMessage
-                .request(&self.client)
-                .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
-                .header(reqwest::header::ACCEPT, "application/json")
-                .multipart(DiaryMessageRequest { diary_id, content }.into_form())
-                .timeout(Duration::from_secs(20)),
+            encoded_request(
+                Endpoint::SendDiaryMessage.request(&self.client),
+                DiaryMessageRequest { diary_id, content }.encoded_form(),
+            )
+            .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .timeout(Duration::from_secs(20)),
         )?;
         if response.error == 0 {
             Ok(())
@@ -105,11 +107,10 @@ impl<'a> DiaryClient<'a> {
     }
 
     pub(crate) fn sync(&self) -> Result<SyncResponse, SyncError> {
-        self.send(
-            Endpoint::SyncV3
-                .request(&self.client)
-                .multipart(SyncRequest::default().into_form()),
-        )
+        self.send(encoded_request(
+            Endpoint::SyncV3.request(&self.client),
+            SyncRequest.encoded_form(),
+        ))
     }
 
     fn send<T: serde::de::DeserializeOwned>(

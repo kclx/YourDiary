@@ -49,7 +49,13 @@ pub(crate) enum Endpoint<'a> {
     DeleteDiary {
         diary_id: i64,
     },
-    SearchDiaries,
+    SearchDiaries {
+        query: &'a str,
+        offset: u32,
+        mood: Option<&'a str>,
+        mood_id: Option<i64>,
+    },
+    SearchDiariesLegacy,
     DiaryMessages {
         diary_id: i64,
     },
@@ -102,12 +108,16 @@ pub(crate) enum Endpoint<'a> {
     TreeholeList {
         offset: u32,
         tab: &'a str,
+        query: Option<&'a str>,
     },
     TreeholeFollowings {
         offset: u32,
     },
     TreeholeFollowers {
         offset: u32,
+    },
+    TreeholeDetail {
+        open_id: &'a str,
     },
     TreeholeTabs,
     TreeholeBanners,
@@ -187,11 +197,9 @@ pub(crate) enum Endpoint<'a> {
     DiaryImage {
         user_id: i64,
         image_id: i64,
-        cache_breaker: &'a str,
     },
     TreeholeImage {
         path: &'a str,
-        cache_breaker: &'a str,
     },
     TreeholeAvatar {
         id: &'a str,
@@ -210,7 +218,7 @@ impl Endpoint<'_> {
         match self {
             Self::Login => post("/api/login/"),
             Self::Signup => post("/api/app_signup/"),
-            Self::KnowYourName => get("/api/know_your_name/"),
+            Self::KnowYourName => post("/api/know_your_name/"),
             Self::LostPassword => post("/api/lost_password/"),
             Self::SendSms => post("/api/send_sms/"),
             Self::VerifySms => post("/api/verify_sms/"),
@@ -231,14 +239,36 @@ impl Endpoint<'_> {
             }
             Self::Images { user_id } => get(&format!("/api/images/{user_id}/")),
             Self::DeleteImage { user_id, image_id } => {
-                get(&format!("/api/delete_image/{user_id}/{image_id}/"))
+                post(&format!("/api/delete_image/{user_id}/{image_id}/"))
             }
             Self::UpdateImageUsedTime { image_id } => {
                 get(&format!("/api/update_image_used_time/{image_id}"))
             }
-            Self::UpdateReadMark { diary_id } => get(&format!("/api/update_read_mark/{diary_id}/")),
-            Self::DeleteDiary { diary_id } => get(&format!("/api/diary/delete/{diary_id}/")),
-            Self::SearchDiaries => post("/api/diary/search/"),
+            Self::UpdateReadMark { diary_id } => {
+                post(&format!("/api/update_read_mark/{diary_id}/"))
+            }
+            Self::DeleteDiary { diary_id } => post(&format!("/api/diary/delete/{diary_id}/")),
+            Self::SearchDiaries {
+                query,
+                offset,
+                mood,
+                mood_id,
+            } => {
+                let mut url = query_url(
+                    API_HOST,
+                    "/api/v2/diary/search/",
+                    &[("q", query), ("offset", &offset.to_string())],
+                );
+                if let Some(mood) = mood {
+                    url.query_pairs_mut().append_pair("mood", mood);
+                }
+                if let Some(id) = mood_id {
+                    url.query_pairs_mut()
+                        .append_pair("mood_id", &id.to_string());
+                }
+                client.get(url)
+            }
+            Self::SearchDiariesLegacy => post("/api/diary/search/"),
             Self::DiaryMessages { diary_id } => client.get(query_url(
                 API_HOST,
                 "/api/v2/diary/msgs/",
@@ -248,7 +278,7 @@ impl Endpoint<'_> {
             Self::StealSticker => post("/api/v2/steal_sticker/"),
             Self::WriteDiary => post("/api/write/"),
             Self::WriteDiaryV3 => post("/api/v3/diary/write/"),
-            Self::UploadAvatar => file_post("/api/upload_avatar/"),
+            Self::UploadAvatar => post("/api/upload_avatar/"),
             Self::UploadImage => file_post("/api/upload_image/"),
             Self::UploadSticker => file_post("/api/upload_sticker/"),
             Self::StickerByUuid { uuid } => client.get(file_resource("/api/sticker/", [uuid, ""])),
@@ -256,16 +286,16 @@ impl Endpoint<'_> {
                 file_get(&format!("/api/sticker/{user_id}/{image_id}/"))
             }
             Self::Pair => post("/api/pair/"),
-            Self::JoinRandomPair => get("/api/join_random_pair/"),
-            Self::CancelRandomPair => get("/api/cancel_random_pair/"),
-            Self::StopRandomPair => get("/api/stop_random_pair/"),
-            Self::Unpair => get("/api/unpair/"),
-            Self::RandomPairHistory => get("/api/get_random_pair_history/"),
+            Self::JoinRandomPair => post("/api/join_random_pair/"),
+            Self::CancelRandomPair => post("/api/cancel_random_pair/"),
+            Self::StopRandomPair => post("/api/stop_random_pair/"),
+            Self::Unpair => post("/api/unpair/"),
+            Self::RandomPairHistory => post("/api/get_random_pair_history/"),
             Self::SendReconnectRequest { target_id } => {
                 get(&format!("/api/send_reconnect_request/{target_id}/"))
             }
             Self::CancelReconnectRequest { target_id } => {
-                get(&format!("/api/cancel_reconnect_request/{target_id}/"))
+                post(&format!("/api/cancel_reconnect_request/{target_id}/"))
             }
             Self::BlockUser => post("/api/block_user/"),
             Self::UnblockUser => post("/api/unblock_user/"),
@@ -286,11 +316,17 @@ impl Endpoint<'_> {
                 "/api/treehole/all/",
                 &[("offset", &offset.to_string()), ("sort_type", sort_type)],
             )),
-            Self::TreeholeList { offset, tab } => client.get(query_url(
-                API_HOST,
-                "/api/v2/treehole/list/",
-                &[("offset", &offset.to_string()), ("tab", tab)],
-            )),
+            Self::TreeholeList { offset, tab, query } => {
+                let mut url = query_url(
+                    API_HOST,
+                    "/api/v2/treehole/list/",
+                    &[("offset", &offset.to_string()), ("tab", tab)],
+                );
+                if let Some(q) = query {
+                    url.query_pairs_mut().append_pair("q", q);
+                }
+                client.get(url)
+            }
             Self::TreeholeFollowings { offset } => client.get(query_url(
                 API_HOST,
                 "/api/v2/treehole/my_followings/",
@@ -301,7 +337,12 @@ impl Endpoint<'_> {
                 "/api/v2/treehole/my_followers/",
                 &[("offset", &offset.to_string())],
             )),
-            Self::TreeholeTabs => get("/api/v2/treehole/tabs/"),
+            Self::TreeholeDetail { open_id } => client.get(query_url(
+                API_HOST,
+                "/api/v2/treehole/detail/",
+                &[("treehole_open_id", open_id)],
+            )),
+            Self::TreeholeTabs => get("/api/v2/treehole/tabs/?v=3"),
             Self::TreeholeBanners => get("/api/v2/treehole/banners/"),
             Self::TreeholeNotifications => get("/api/treehole/notifications/"),
             Self::ReadAllTreeholeNotifications => get("/api/treehole/read_all_notifications/"),
@@ -328,7 +369,8 @@ impl Endpoint<'_> {
                     &[
                         ("treehole_id", &treehole_id.to_string()),
                         ("offset", &offset.to_string()),
-                        ("sort_type", if latest { "latest" } else { "old" }),
+                        ("limit", "20"),
+                        ("sort_type", if latest { "latest" } else { "" }),
                     ],
                 ))
                 .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
@@ -398,24 +440,17 @@ impl Endpoint<'_> {
             Self::Redirect { page } => {
                 client.get(query_url(API_HOST, "/api/get_redirect/", &[("page", page)]))
             }
-            Self::DiaryImage {
-                user_id,
-                image_id,
-                cache_breaker,
-            } => client.get(file_resource(
+            Self::DiaryImage { user_id, image_id } => client.get(file_resource(
                 "/api/image/",
                 [
                     user_id.to_string().as_str(),
                     image_id.to_string().as_str(),
-                    cache_breaker,
+                    "",
                 ],
             )),
-            Self::TreeholeImage {
-                path,
-                cache_breaker,
-            } => client.get(file_resource(
+            Self::TreeholeImage { path } => client.get(file_resource(
                 "/api/treehole/image/",
-                path.trim_matches('/').split('/').chain([cache_breaker]),
+                path.trim_matches('/').split('/').chain([""]),
             )),
             Self::TreeholeAvatar { id } => {
                 client.get(file_resource("/api/treehole_avatar/", [id, ""]))
@@ -469,7 +504,7 @@ mod tests {
             ),
             (
                 Endpoint::UpdateReadMark { diary_id: 8 },
-                Method::GET,
+                Method::POST,
                 "https://nideriji.cn/api/update_read_mark/8/",
             ),
             (
@@ -481,9 +516,43 @@ mod tests {
                 Endpoint::TreeholeList {
                     offset: 3,
                     tab: "a & b",
+                    query: Some("x+y"),
                 },
                 Method::GET,
-                "https://nideriji.cn/api/v2/treehole/list/?offset=3&tab=a+%26+b",
+                "https://nideriji.cn/api/v2/treehole/list/?offset=3&tab=a+%26+b&q=x%2By",
+            ),
+            (
+                Endpoint::TreeholeTabs,
+                Method::GET,
+                "https://nideriji.cn/api/v2/treehole/tabs/?v=3",
+            ),
+            (
+                Endpoint::UploadAvatar,
+                Method::POST,
+                "https://nideriji.cn/api/upload_avatar/",
+            ),
+            (
+                Endpoint::DiaryImage {
+                    user_id: 1,
+                    image_id: 42,
+                },
+                Method::GET,
+                "https://f.nideriji.cn/api/image/1/42/",
+            ),
+            (
+                Endpoint::SearchDiaries {
+                    query: "雨 & 雪",
+                    offset: 20,
+                    mood: None,
+                    mood_id: Some(9),
+                },
+                Method::GET,
+                "https://nideriji.cn/api/v2/diary/search/?q=%E9%9B%A8+%26+%E9%9B%AA&offset=20&mood_id=9",
+            ),
+            (
+                Endpoint::TreeholeDetail { open_id: "a+b" },
+                Method::GET,
+                "https://nideriji.cn/api/v2/treehole/detail/?treehole_open_id=a%2Bb",
             ),
             (
                 Endpoint::TreeholeComments {
@@ -492,7 +561,7 @@ mod tests {
                     offset: 20,
                 },
                 Method::GET,
-                "https://nideriji.cn/api/treehole/comments/?treehole_id=8&offset=20&sort_type=old",
+                "https://nideriji.cn/api/treehole/comments/?treehole_id=8&offset=20&limit=20&sort_type=",
             ),
             (
                 Endpoint::StickerByUuid { uuid: "a/b?#" },
@@ -502,10 +571,9 @@ mod tests {
             (
                 Endpoint::TreeholeImage {
                     path: "folder/photo",
-                    cache_breaker: "v#2",
                 },
                 Method::GET,
-                "https://f.nideriji.cn/api/treehole/image/folder/photo/v%232",
+                "https://f.nideriji.cn/api/treehole/image/folder/photo/",
             ),
             (
                 Endpoint::MoodList {

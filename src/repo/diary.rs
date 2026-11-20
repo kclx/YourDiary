@@ -156,17 +156,13 @@ impl DiaryCache {
         Ok(())
     }
 
-    pub(crate) fn revision(
-        &self,
-        account: i64,
-        author: i64,
-        id: i64,
-    ) -> rusqlite::Result<Option<i64>> {
+    pub(crate) fn revisions(&self, account: i64) -> rusqlite::Result<HashMap<(i64, i64), i64>> {
         self.0
-            .prepare_cached(sql("revision"))?
-            .query_row((account, author, id), |row| row.get(0))
-            .optional()
-            .map(Option::flatten)
+            .prepare(sql("revisions"))?
+            .query_map([account], |row| {
+                Ok(((row.get(0)?, row.get(1)?), row.get(2)?))
+            })?
+            .collect()
     }
 
     pub(crate) fn save_batch<'a>(

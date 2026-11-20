@@ -3,7 +3,7 @@ use crate::service::auth::{Session, SessionStore};
 use crate::{
     api::diary::DiaryClient,
     repo::diary::DiaryCache,
-    service::cache::{Source, refresh},
+    service::cache::{Source, refresh_if},
 };
 use std::{
     sync::{
@@ -30,7 +30,7 @@ pub(crate) fn start_sync(session: Arc<Session>, store: SessionStore) -> Receiver
     let (sender, receiver) = channel();
     spawn(move || {
         let snapshot = session.snapshot("diary/list");
-        match refresh(
+        match refresh_if(
             &snapshot,
             || {
                 DiaryClient::new(session.token())
@@ -38,6 +38,7 @@ pub(crate) fn start_sync(session: Arc<Session>, store: SessionStore) -> Receiver
                     .and_then(|r| map_entries(r, session.profile(), session.account_id()))
             },
             |e| *e == SyncError::RequestFailed,
+            |sync| sync.skipped == 0,
         ) {
             Ok((mut result, source)) => {
                 if let Source::Cache(since) = source {
@@ -71,6 +72,7 @@ pub(crate) fn start_sync(session: Arc<Session>, store: SessionStore) -> Receiver
                 }
                 if sender
                     .send(SyncEvent::List(Ok(SyncedDiaries {
+                        skipped: result.skipped,
                         moods: result.moods,
                         account_id: result.account_id,
                         entries: result.entries.clone(),

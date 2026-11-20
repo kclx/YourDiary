@@ -43,10 +43,12 @@ fn build_archive(
     mut fetch: impl FnMut(i64, &[i64]) -> Result<HashMap<i64, FullDiary>, SyncError>,
 ) -> Result<DiaryExport, &'static str> {
     let diaries = response.diaries.as_mut().ok_or("未取得本人的日记列表。")?;
-    let total = diaries.len();
+    let total = diaries.entries.len() + diaries.skipped;
     // 列表展示可以推断作者，导出只接受接口明确给出作者的记录。
-    diaries.retain(|d| d.user.as_ref().and_then(|u| u.positive_number()).is_some());
-    let unverified = total - diaries.len();
+    diaries
+        .entries
+        .retain(|d| d.user.as_ref().and_then(|u| u.positive_number()).is_some());
+    let unverified = total - diaries.entries.len();
     response.diaries_paired = None;
     let synced = map_entries(response, profile, session_id).map_err(|_| "无法读取日记列表。")?;
     let account = synced.account_id.ok_or("无法确认当前账号。")?;

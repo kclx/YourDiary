@@ -1,7 +1,9 @@
 use super::{
     Endpoint,
-    request::TreeholeCommentRequest,
-    response::treehole::{Comment, Entries, Notification, Post, Tab, TreeholeActionResponse},
+    request::{TreeholeCommentRequest, encoded_request},
+    response::treehole::{
+        Comment, Entries, Notification, Post, PostDetail, Tab, TreeholeActionResponse,
+    },
 };
 use reqwest::{StatusCode, blocking::Client};
 use serde::de::DeserializeOwned;
@@ -44,7 +46,14 @@ impl TreeholeClient {
         tab: &str,
         offset: u32,
     ) -> Result<Vec<Post>, TreeholeError> {
-        self.entries(token, Endpoint::TreeholeList { offset, tab })
+        self.entries(
+            token,
+            Endpoint::TreeholeList {
+                offset,
+                tab,
+                query: None,
+            },
+        )
     }
 
     pub(crate) fn comments(
@@ -73,13 +82,15 @@ impl TreeholeClient {
     ) -> Result<(), String> {
         self.write_action(
             token,
-            Endpoint::WriteTreeholeComment,
-            TreeholeCommentRequest {
-                treehole_id,
-                content,
-                reply_to,
-            }
-            .into_form(),
+            encoded_request(
+                Endpoint::WriteTreeholeComment.request(&self.0),
+                TreeholeCommentRequest {
+                    treehole_id,
+                    content,
+                    reply_to,
+                }
+                .encoded_form(),
+            ),
             "未能确认发送结果，请先刷新评论再重试",
             "评论发布失败",
         )
@@ -106,8 +117,7 @@ impl TreeholeClient {
         };
         self.write_action(
             token,
-            endpoint,
-            reqwest::blocking::multipart::Form::new().text("null", "null"),
+            endpoint.request(&self.0),
             "未能确认点赞状态，请先刷新再重试",
             "点赞状态更新失败",
         )
@@ -116,18 +126,15 @@ impl TreeholeClient {
     fn write_action(
         &self,
         token: &str,
-        endpoint: Endpoint<'_>,
-        form: reqwest::blocking::multipart::Form,
+        request: reqwest::blocking::RequestBuilder,
         uncertain: &'static str,
         rejected: &'static str,
     ) -> Result<(), String> {
-        let response = endpoint
-            .request(&self.0)
+        let response = request
             .header("auth", format!("token {token}"))
             .header(reqwest::header::USER_AGENT, "OhApp/3.7 Platform/Android")
             .header(reqwest::header::ACCEPT, "application/json")
             .timeout(Duration::from_secs(20))
-            .multipart(form)
             .send()
             .and_then(|r| r.error_for_status())
             .map_err(|e| match e.status() {
@@ -153,6 +160,25 @@ impl TreeholeClient {
         endpoint: Endpoint<'_>,
     ) -> Result<Vec<T>, TreeholeError> {
         let next_posts_page = matches!(endpoint, Endpoint::TreeholeList { offset: 1.., .. });
+        self.get::<Entries<T>>(token, endpoint)?
+            .into_entries(next_posts_page)
+    }
+
+    pub(crate) fn detail(&self, token: &str, open_id: &str) -> Result<Post, TreeholeError> {
+        let data: PostDetail = self.get(token, Endpoint::TreeholeDetail { open_id })?;
+        if data.error != 0 {
+            return Err(TreeholeError::Other("帖子不可用"));
+        }
+        data.treehole
+            .filter(|post| post.id > 0)
+            .ok_or(TreeholeError::Other("树洞响应缺少帖子"))
+    }
+
+    fn get<T: DeserializeOwned>(
+        &self,
+        token: &str,
+        endpoint: Endpoint<'_>,
+    ) -> Result<T, TreeholeError> {
         let response = endpoint
             .request(&self.0)
             .header("auth", format!("token {token}"))
@@ -166,14 +192,13 @@ impl TreeholeClient {
                 _ if super::temporarily_unavailable(&e) => TreeholeError::Unavailable,
                 _ => TreeholeError::Other("树洞请求未成功"),
             })?;
-        let data: Entries<T> = serde_json::from_reader(response).map_err(|e| {
+        serde_json::from_reader(response).map_err(|e| {
             if e.is_io() {
                 TreeholeError::Unavailable
             } else {
                 TreeholeError::Other("无法解析树洞数据")
             }
-        })?;
-        data.into_entries(next_posts_page)
+        })
     }
 }
 
@@ -210,6 +235,16 @@ mod tests {
         assert_eq!(rows[0].comment_added.as_deref(), Some("新回复"));
         assert_eq!(rows[0].comment_replied.as_deref(), Some("原评论"));
         assert!(!rows[0].read);
+        let numeric = decode(r#"{"error":0,"notifications":[{"id":9,"type":"NEW_COMMENT","treehole_open_id":77,"treehole_id":"4","read":1}]}"#).unwrap();
+        assert_eq!(numeric[0].treehole_open_id.as_deref(), Some("77"));
+        assert_eq!(numeric[0].treehole_id, Some(4));
+        assert!(numeric[0].read);
+        let opaque = decode(
+            r#"{"error":0,"notifications":[{"id":9,"type":"NEW_ENTRY","treehole_open_id":"a+b"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(opaque[0].treehole_open_id.as_deref(), Some("a+b"));
+        assert!(!opaque[0].read);
         assert!(
             decode(r#"{"error":0,"notifications":[]}"#)
                 .unwrap()

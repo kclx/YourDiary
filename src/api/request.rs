@@ -1,4 +1,16 @@
-use reqwest::blocking::multipart::Form;
+use form_urlencoded::Serializer;
+
+pub(super) fn encoded_request(
+    request: reqwest::blocking::RequestBuilder,
+    body: String,
+) -> reqwest::blocking::RequestBuilder {
+    request
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(body)
+}
 
 pub(crate) struct LoginRequest {
     email: String,
@@ -10,28 +22,19 @@ impl LoginRequest {
         (!email.is_empty() && !password.is_empty()).then_some(Self { email, password })
     }
 
-    pub(super) fn into_form(self) -> Form {
-        Form::new()
-            .text("email", self.email)
-            .text("password", self.password)
+    pub(super) fn encoded_form(self) -> String {
+        Serializer::new(String::new())
+            .append_pair("email", &self.email)
+            .append_pair("password", &self.password)
+            .finish()
     }
 }
 
-#[derive(Default)]
-pub(super) struct SyncRequest {
-    user_config_ts: u64,
-    diaries_ts: u64,
-    readmark_ts: u64,
-    images_ts: u64,
-}
+pub(super) struct SyncRequest;
 
 impl SyncRequest {
-    pub(super) fn into_form(self) -> Form {
-        Form::new()
-            .text("user_config_ts", self.user_config_ts.to_string())
-            .text("diaries_ts", self.diaries_ts.to_string())
-            .text("readmark_ts", self.readmark_ts.to_string())
-            .text("images_ts", self.images_ts.to_string())
+    pub(super) fn encoded_form(self) -> String {
+        "diaries_ts=0".into()
     }
 }
 
@@ -40,19 +43,22 @@ pub(super) struct DiariesRequest<'a> {
 }
 
 impl DiariesRequest<'_> {
-    pub(super) fn into_form(self) -> Form {
+    pub(super) fn encoded_form(self) -> String {
         let ids = self
             .diary_ids
             .iter()
             .map(i64::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        Form::new().text("diary_ids", ids)
+        Serializer::new(String::new())
+            .append_pair("diary_ids", &ids)
+            .finish()
     }
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
 pub(crate) struct DiaryWrite {
+    pub extras: super::response::diary::DiaryExtras,
     pub id: Option<i64>,
     pub title: String,
     pub content: String,
@@ -62,23 +68,34 @@ pub(crate) struct DiaryWrite {
 }
 
 impl DiaryWrite {
-    pub(super) fn into_form(self) -> Form {
-        let mut form = Form::new()
-            .text("content", self.content)
-            .text("date", self.date);
+    pub(super) fn encoded_form(&self) -> String {
+        let mut form = form_urlencoded::Serializer::new(String::new());
+        form.append_pair("content", &self.content)
+            .append_pair("date", &self.date)
+            .append_pair("title", self.title.trim());
         if let Some(id) = self.id {
-            form = form.text("id", id.to_string());
+            form.append_pair("id", &id.to_string());
         }
-        if !self.title.trim().is_empty() {
-            form = form.text("title", self.title.trim().to_owned());
-        }
-        if let Some(weather) = self.weather {
-            form = form.text("weather", weather);
+        if let Some(weather) = &self.weather {
+            form.append_pair("weather", weather);
         }
         if let Some(id) = self.mood_id {
-            form = form.text("mood_id", id.to_string());
+            form.append_pair("mood_id", &id.to_string());
         }
-        form
+        for (key, version_key, value) in [
+            ("styles", "styles_v", &self.extras.styles),
+            ("temperature", "temperature_v", &self.extras.temperature),
+        ] {
+            if let Some(value) = value {
+                if let Some(text) = value.as_str() {
+                    form.append_pair(key, text);
+                } else {
+                    form.append_pair(key, &value.to_string());
+                }
+                form.append_pair(version_key, "1");
+            }
+        }
+        form.finish()
     }
 }
 
@@ -88,11 +105,12 @@ pub(super) struct DiaryMessageRequest {
 }
 
 impl DiaryMessageRequest {
-    pub(super) fn into_form(self) -> Form {
-        Form::new()
-            .text("diary_id", self.diary_id.to_string())
-            .text("content", self.content)
-            .text("comment_type", "0")
+    pub(super) fn encoded_form(self) -> String {
+        Serializer::new(String::new())
+            .append_pair("diary_id", &self.diary_id.to_string())
+            .append_pair("content", &self.content)
+            .append_pair("comment_type", "0")
+            .finish()
     }
 }
 
@@ -103,77 +121,81 @@ pub(super) struct TreeholeCommentRequest {
 }
 
 impl TreeholeCommentRequest {
-    pub(super) fn into_form(self) -> Form {
-        let form = Form::new()
-            .text("treehole_id", self.treehole_id.to_string())
-            .text("content", self.content)
-            .text("comment_type", "0");
-        match self.reply_to {
-            Some(id) => form.text("reply_to", id.to_string()),
-            None => form,
+    pub(super) fn encoded_form(self) -> String {
+        let mut form = Serializer::new(String::new());
+        form.append_pair("treehole_id", &self.treehole_id.to_string())
+            .append_pair("content", self.content.trim())
+            .append_pair("comment_type", "0");
+        if let Some(id) = self.reply_to {
+            form.append_pair("reply_to", &id.to_string());
         }
+        form.finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
+
+    #[test]
+    fn edit_encodes_empty_title_and_preserves_known_metadata() {
+        use std::collections::HashMap;
+        let edit = DiaryWrite {
+            id: Some(19),
+            content: "雨 & 雪+".into(),
+            weather: Some("rainy".into()),
+            mood_id: Some(42),
+            ..Default::default()
+        };
+        let read = |d: &DiaryWrite| {
+            form_urlencoded::parse(d.encoded_form().as_bytes())
+                .into_owned()
+                .collect::<HashMap<_, _>>()
+        };
+        let fields = read(&edit);
+        assert_eq!(
+            (&fields["content"], fields["title"].as_str()),
+            (&edit.content, "")
+        );
+        assert_eq!(
+            (
+                &fields["id"][..],
+                &fields["weather"][..],
+                &fields["mood_id"][..]
+            ),
+            ("19", "rainy", "42")
+        );
+        assert!(!fields.contains_key("styles_v") && !fields.contains_key("temperature"));
+        let mut edit = edit;
+        edit.extras.styles = Some(serde_json::json!("[1,2]"));
+        edit.extras.temperature = Some(serde_json::json!(12));
+        let fields = read(&edit);
+        assert_eq!(
+            (
+                &fields["styles"][..],
+                &fields["temperature"][..],
+                &fields["styles_v"][..],
+                &fields["temperature_v"][..]
+            ),
+            ("[1,2]", "12", "1", "1")
+        );
+    }
 
     #[test]
     fn request_forms_keep_their_wire_fields() {
         let login = LoginRequest::new("a@b.cn".into(), "test".into()).unwrap();
         for (form, fields) in [
             (
-                login.into_form(),
+                login.encoded_form(),
                 &[("email", "a@b.cn"), ("password", "test")][..],
             ),
-            (
-                SyncRequest::default().into_form(),
-                &[
-                    ("user_config_ts", "0"),
-                    ("diaries_ts", "0"),
-                    ("readmark_ts", "0"),
-                    ("images_ts", "0"),
-                ][..],
-            ),
+            (SyncRequest.encoded_form(), &[("diaries_ts", "0")][..]),
             (
                 DiariesRequest {
                     diary_ids: &[8, 42],
                 }
-                .into_form(),
+                .encoded_form(),
                 &[("diary_ids", "8,42")][..],
-            ),
-            (
-                DiaryWrite {
-                    id: None,
-                    title: "  ".into(),
-                    content: "第一行\n第二行".into(),
-                    date: "2026-11-19".into(),
-                    weather: None,
-                    mood_id: None,
-                }
-                .into_form(),
-                &[("content", "第一行\n第二行"), ("date", "2026-11-19")][..],
-            ),
-            (
-                DiaryWrite {
-                    id: Some(19),
-                    title: " 周四 ".into(),
-                    content: "下雨了".into(),
-                    date: "2026-11-19".into(),
-                    weather: Some("rainy".into()),
-                    mood_id: Some(42),
-                }
-                .into_form(),
-                &[
-                    ("id", "19"),
-                    ("title", "周四"),
-                    ("content", "下雨了"),
-                    ("date", "2026-11-19"),
-                    ("weather", "rainy"),
-                    ("mood_id", "42"),
-                ][..],
             ),
             (
                 TreeholeCommentRequest {
@@ -181,7 +203,7 @@ mod tests {
                     content: "评论".into(),
                     reply_to: None,
                 }
-                .into_form(),
+                .encoded_form(),
                 &[
                     ("treehole_id", "17"),
                     ("content", "评论"),
@@ -194,7 +216,7 @@ mod tests {
                     content: "回复".into(),
                     reply_to: Some(21),
                 }
-                .into_form(),
+                .encoded_form(),
                 &[
                     ("treehole_id", "17"),
                     ("content", "回复"),
@@ -207,7 +229,7 @@ mod tests {
                     diary_id: 7,
                     content: "留言".into(),
                 }
-                .into_form(),
+                .encoded_form(),
                 &[
                     ("diary_id", "7"),
                     ("content", "留言"),
@@ -215,15 +237,12 @@ mod tests {
                 ][..],
             ),
         ] {
-            let mut body = String::new();
-            form.into_reader().read_to_string(&mut body).unwrap();
-            assert_eq!(body.matches("Content-Disposition:").count(), fields.len());
-            for (name, value) in fields {
-                assert!(
-                    body.contains(&format!("name=\"{name}\"\r\n\r\n{value}\r\n")),
-                    "{name}"
-                );
-            }
+            let decoded: Vec<_> = form_urlencoded::parse(form.as_bytes()).collect();
+            let actual: Vec<_> = decoded
+                .iter()
+                .map(|(key, value)| (key.as_ref(), value.as_ref()))
+                .collect();
+            assert_eq!(actual, fields);
         }
     }
 }

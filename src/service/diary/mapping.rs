@@ -75,27 +75,23 @@ pub(super) fn map_entries(
             || response
                 .diaries_paired
                 .as_ref()
-                .is_some_and(|diaries| !diaries.is_empty()));
+                .is_some_and(|diaries| !diaries.entries.is_empty()));
 
+    let own_rows = response.diaries.unwrap_or_default();
+    let partner_rows = response.diaries_paired.unwrap_or_default();
+    let skipped = own_rows.skipped + partner_rows.skipped;
     let mut seen = HashSet::new();
-    let mut diaries: Vec<_> = response
-        .diaries_paired
-        .unwrap_or_default()
+    let mut diaries: Vec<_> = partner_rows
+        .entries
         .into_iter()
         .map(|diary| (true, diary))
-        .chain(
-            response
-                .diaries
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|diary| {
-                    match diary.user.as_ref().and_then(ApiInteger::positive_number) {
-                        Some(author) if Some(author) == partner_id => Some((true, diary)),
-                        Some(author) if own_id.is_some() && Some(author) != own_id => None,
-                        _ => Some((false, diary)),
-                    }
-                }),
-        )
+        .chain(own_rows.entries.into_iter().filter_map(|diary| {
+            match diary.user.as_ref().and_then(ApiInteger::positive_number) {
+                Some(author) if Some(author) == partner_id => Some((true, diary)),
+                Some(author) if own_id.is_some() && Some(author) != own_id => None,
+                _ => Some((false, diary)),
+            }
+        }))
         .filter(|(is_partner, diary)| seen.insert((*is_partner, diary.id)))
         .collect();
     diaries.sort_by(|(left_partner, left), (right_partner, right)| {
@@ -137,7 +133,8 @@ pub(super) fn map_entries(
                     .or(if is_partner { partner_id } else { own_id }),
                 revision: Cell::new(revision),
                 read: Cell::new(read_status(marks, diary.id, revision)),
-                title: diary.title.into(),
+                extras: diary.extras,
+                title: diary.title.unwrap_or_default().into(),
                 date: diary.createddate,
                 weather: weather_name(diary.weather.as_deref().unwrap_or_default()).into(),
                 weather_code: diary.weather,
@@ -179,6 +176,7 @@ pub(super) fn map_entries(
         })
         .collect();
     Ok(SyncedDiaries {
+        skipped,
         moods,
         account_id: own_id,
         entries,
@@ -194,6 +192,19 @@ pub(super) fn full_diaries(
     author_id: i64,
     diary_ids: &[i64],
 ) -> Result<HashMap<i64, FullDiary>, SyncError> {
+    Ok(full_rows(response, author_id, diary_ids)?
+        .map(|(id, full, _)| (id, full))
+        .collect())
+}
+
+pub(super) fn full_rows<'a>(
+    response: DetailResponse,
+    author_id: i64,
+    diary_ids: &'a [i64],
+) -> Result<
+    impl Iterator<Item = (i64, FullDiary, crate::api::response::diary::DiaryExtras)> + 'a,
+    SyncError,
+> {
     if response.error != 0 {
         return Err(SyncError::Rejected);
     }
@@ -201,7 +212,7 @@ pub(super) fn full_diaries(
         .diaries
         .ok_or(SyncError::MissingDiaries)?
         .into_iter()
-        .filter_map(|diary| {
+        .filter_map(move |diary| {
             let id = diary.id.positive_number()?;
             let author = diary.user.as_ref().and_then(ApiInteger::positive_number);
             if diary.partial
@@ -216,9 +227,9 @@ pub(super) fn full_diaries(
                     content: diary.content?,
                     revision: diary.ts.as_ref().and_then(ApiInteger::positive_number),
                 },
+                diary.extras,
             ))
-        })
-        .collect())
+        }))
 }
 
 #[cfg(test)]

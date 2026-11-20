@@ -16,6 +16,8 @@ pub(crate) struct DiaryEntry {
     pub mood_id: Option<i64>,
     pub weather: String,
     pub mood: String,
+    #[serde(default)]
+    pub extras: crate::api::response::diary::DiaryExtras,
     pub content: Arc<str>,
     pub has_full_content: bool,
     pub is_partner: bool,

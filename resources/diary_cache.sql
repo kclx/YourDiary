@@ -21,8 +21,8 @@ SELECT EXISTS(SELECT 1 FROM diary_cache_initialized WHERE account_id = ?1);
 -- name: complete
 INSERT OR IGNORE INTO diary_cache_initialized (account_id) VALUES (?1);
 
--- name: revision
-SELECT revision FROM diary_content WHERE account_id = ?1 AND author_id = ?2 AND diary_id = ?3;
+-- name: revisions
+SELECT author_id, diary_id, revision FROM diary_content WHERE account_id = ?1 AND revision IS NOT NULL;
 
 -- name: load
 SELECT content, revision FROM diary_content WHERE account_id = ?1 AND author_id = ?2 AND diary_id = ?3;

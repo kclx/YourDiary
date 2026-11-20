@@ -241,6 +241,7 @@ fn install_form(
         let entry = DiaryWrite {
             title: title.text().into(),
             content: content.into(),
+            extras: original.extras.clone(),
             id: original.id,
             date: original.date.clone(),
             weather: weather

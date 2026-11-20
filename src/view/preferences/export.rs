@@ -66,7 +66,7 @@ async fn choose_and_export(window: &ApplicationWindow, session: Arc<Session>) {
                     let mut message = format!("已保存 {} 篇日记。", export.count);
                     if export.unverified > 0 {
                         message.push_str(&format!(
-                            "另有 {} 篇缺少作者信息，已跳过。",
+                            "另有 {} 条记录无法解析或确认作者，已跳过。",
                             export.unverified
                         ));
                     }

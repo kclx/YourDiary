@@ -264,6 +264,7 @@ pub(super) fn watch_sync<
             on_unauthorized.clone(),
         );
         let mut diary_count = 0;
+        let mut skipped = 0;
         let mut has_total = false;
         timeout_add_local(Duration::from_millis(100), move || {
             let (Some(list), Some(status), Some(bar), Some(search), Some(search_status)) = (
@@ -289,6 +290,7 @@ pub(super) fn watch_sync<
                     Ok(SyncEvent::List(Ok(result))) => {
                         on_profile(result.profile.as_ref());
                         diary_count = result.entries.len();
+                        skipped = result.skipped;
                         let scroll = list.vadjustment().map(|adj| {
                             let y = adj.value();
                             (adj, y)
@@ -334,7 +336,7 @@ pub(super) fn watch_sync<
                     Ok(SyncEvent::Complete(Some(progress)))
                         if progress.completed == progress.total =>
                     {
-                        if diary_count == 0 {
+                        if diary_count == 0 && skipped == 0 {
                             "暂时没有日记".into()
                         } else {
                             format!("{diary_count} 篇日记")
@@ -371,7 +373,11 @@ pub(super) fn watch_sync<
                     Err(TryRecvError::Disconnected) => "同步请求未完成".into(),
                 };
                 bar.set_visible(false);
-                status.set_text(&status_text);
+                if skipped > 0 {
+                    status.set_text(&format!("{status_text} · {skipped} 条记录未能解析"));
+                } else {
+                    status.set_text(&status_text);
+                }
                 if !search.text().trim().is_empty() {
                     search.emit_by_name::<()>("search-changed", &[]);
                 } else {

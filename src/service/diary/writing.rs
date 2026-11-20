@@ -1,4 +1,7 @@
-use super::{DiaryWrite, SyncError, SyncedDiaries, mapping::map_entries, open_diary};
+use super::{
+    DiaryWrite, SyncError, SyncedDiaries,
+    mapping::{full_rows, map_entries},
+};
 use crate::{api::diary::DiaryClient, service::auth::Session};
 
 pub(crate) fn today() -> String {
@@ -21,7 +24,8 @@ pub(crate) enum WriteError {
 }
 
 pub(crate) fn load_today(session: &Session, date: &str) -> Result<TodayDiary, &'static str> {
-    let response = DiaryClient::new(session.token())
+    let client = DiaryClient::new(session.token());
+    let response = client
         .sync()
         .map_err(|_| "无法同步今天的日记，请返回后重试")?;
     if response.diaries.is_none() {
@@ -30,16 +34,22 @@ pub(crate) fn load_today(session: &Session, date: &str) -> Result<TodayDiary, &'
     let synced = map_entries(response, session.profile(), session.account_id())
         .map_err(|_| "无法读取日记列表，请返回后重试")?;
     prepare(synced, date, |account, entry| {
-        open_diary(session, account, entry, false)
-            .filter(|opened| opened.current)
-            .map(|opened| opened.full.content)
+        let author = account?;
+        let ids = [entry.id];
+        let response = client.details(author, &ids).ok()?;
+        let (_, full, extras) = full_rows(response, author, &ids).ok()?.next()?;
+        (entry.revision.get().is_none() || full.covers(entry.revision.get()))
+            .then_some((full.content, extras))
     })
 }
 
 fn prepare(
     synced: SyncedDiaries,
     date: &str,
-    full_content: impl FnOnce(Option<i64>, &super::DiaryEntry) -> Option<String>,
+    full_content: impl FnOnce(
+        Option<i64>,
+        &super::DiaryEntry,
+    ) -> Option<(String, crate::api::response::diary::DiaryExtras)>,
 ) -> Result<TodayDiary, &'static str> {
     let mut entry = DiaryWrite {
         date: date.into(),
@@ -54,16 +64,23 @@ fn prepare(
         if own.id <= 0 || own.author_id.is_some() && synced.account_id != own.author_id {
             return Err("无法确认今天这篇日记的作者或编号");
         }
+        entry.extras = own.extras.clone();
         entry.content = if own.has_full_content {
             own.content.to_string()
         } else {
-            full_content(synced.account_id, &own).ok_or("无法取得今天日记的全文，请返回后重试")?
+            let (content, detail) = full_content(synced.account_id, &own)
+                .ok_or("无法取得今天日记的全文，请返回后重试")?;
+            entry.extras.styles = detail.styles.or(entry.extras.styles);
+            entry.extras.temperature = detail.temperature.or(entry.extras.temperature);
+            content
         };
         entry.id = Some(own.id);
         entry.title = own.title.to_string();
         entry.weather = own.weather_code.filter(|s| !s.is_empty());
         entry.mood_id = own.mood_id;
         mood_name = own.mood;
+    } else if synced.skipped > 0 {
+        return Err("部分日记未能解析，无法确认今天是否已写。请刷新后重试");
     }
     Ok(TodayDiary {
         entry,
@@ -127,7 +144,7 @@ mod tests {
     #[test]
     fn only_own_today_is_editable_and_requires_full_content() {
         let date = "2026-11-19";
-        let own = json!({"id":5,"user":1,"createddate":date,"title":"标题","content":"摘","is_simple":1,"weather":"rainy","mood_id":42});
+        let own = json!({"id":5,"user":1,"createddate":date,"title":"标题","content":"摘","is_simple":1,"weather":"rainy","mood_id":42,"temperature":18});
         let partner = json!({"id":9,"user":2,"createddate":date,"title":"","content":"对方"});
         let yesterday =
             json!({"id":3,"user":1,"createddate":"2026-11-18","title":"","content":"昨天"});
@@ -151,12 +168,23 @@ mod tests {
         .unwrap();
         assert!(blank.entry.id.is_none() && blank.entry.content.is_empty());
         assert!(prepare(sync(vec![own.clone()]), date, |_, _| None).is_err());
+        let mixed = sync(vec![
+            json!({"id": 5, "createddate":null}),
+            yesterday.clone(),
+        ]);
+        assert_eq!((mixed.entries.len(), mixed.skipped), (2, 1));
+        assert!(prepare(mixed, date, |_, _| panic!()).is_err());
         let existing = prepare(sync(vec![yesterday, own]), date, |account, row| {
             assert_eq!((account, row.id), (Some(1), 5));
-            Some("完整正文".into())
+            Some((
+                "完整正文".into(),
+                serde_json::from_value(json!({"styles":"[]"})).unwrap(),
+            ))
         })
         .unwrap()
         .entry;
+        assert_eq!(existing.extras.temperature, Some(json!(18)));
+        assert_eq!(existing.extras.styles, Some(json!("[]")));
         assert_eq!(
             (
                 existing.id,

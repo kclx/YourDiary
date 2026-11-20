@@ -70,6 +70,7 @@ fn large_diary_list_reuses_rows_and_scrolls_to_the_end() {
                 read: Cell::new(Some(index % 2 == 0)),
                 title: format!("日记 {index}").into(),
                 date: String::new(),
+                extras: Default::default(),
                 weather_code: None,
                 mood_id: None,
                 weather: String::new(),
@@ -111,6 +112,7 @@ fn large_diary_list_reuses_rows_and_scrolls_to_the_end() {
         replacement.title = "刷新后的日记".into();
         sender
             .send(SyncEvent::List(Ok(SyncedDiaries {
+                skipped: 0,
                 moods: vec![],
                 account_id: None,
                 entries,
@@ -324,6 +326,7 @@ fn large_diary_list_reuses_rows_and_scrolls_to_the_end() {
         listen(receiver);
         sender
             .send(SyncEvent::List(Ok(SyncedDiaries {
+                skipped: 0,
                 moods: vec![],
                 account_id: None,
                 entries: vec![replacement],
@@ -363,6 +366,7 @@ fn composer_preserves_failed_draft_and_submits_once() {
             |date| {
                 Ok(crate::service::diary::TodayDiary {
                     entry: crate::service::diary::DiaryWrite {
+                        extras: Default::default(),
                         id: Some(42),
                         date: date.into(),
                         title: "原标题".into(),
